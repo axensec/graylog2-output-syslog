@@ -46,7 +46,7 @@ public class SyslogOutput implements MessageOutput {
 	private String format;
 	private MessageSender sender;
 
-	public static MessageSender createSender(String fmt) {
+	public static MessageSender createSender(String fmt, String field) {
 		try {
 			if (fmt == null || fmt.equalsIgnoreCase("plain")) {
 				return new PlainSender();
@@ -60,6 +60,12 @@ public class SyslogOutput implements MessageOutput {
 			if (fmt == null || fmt.equalsIgnoreCase("cef")) {
 				return new CEFSender();
 			} else
+			if (fmt == null || fmt.equalsIgnoreCase("custom:PlainCustomFacility")) {
+                return new PlainCustomFacility(field);
+			} else
+            if (fmt == null || fmt.equalsIgnoreCase("custom:PlainCustomFacilityMultiline")) {
+                return new PlainCustomFacilityMultiline(field);
+            } else
 			if (fmt == null || fmt.toLowerCase().startsWith("custom:")) {
 				String clazz = fmt.substring(fmt.indexOf(":") + 1);
 				return (MessageSender) Class.forName(clazz).newInstance();
@@ -135,12 +141,16 @@ public class SyslogOutput implements MessageOutput {
 		String hash = protocol + "_" + host + "_" + port + "_" + format;
 		syslog = Syslog.exists(hash) ? Syslog.getInstance(hash) : Syslog.createInstance(hash, config);
 
-		sender = createSender(format);
+		String field = conf.getString("field");
+		sender = createSender(format, field);
 		if (sender instanceof StructuredSender) {
 			// Always send via structured data
 			syslog.getConfig().setUseStructuredData(true);
 		} else
-		if (sender instanceof PlainSender || sender instanceof CEFSender) {
+		if (sender instanceof PlainSender ||
+            sender instanceof CEFSender ||
+            sender instanceof PlainCustomFacility ||
+            sender instanceof PlainCustomFacilityMultiline ) {
 			// Will write this fields manually
 			syslog.getConfig().setSendLocalName(false);
 			syslog.getConfig().setSendLocalTimestamp(false);
@@ -247,12 +257,21 @@ public class SyslogOutput implements MessageOutput {
 			configurationRequest.addField(new TextField("host", "Syslog host", "localhost", "Remote host to send syslog messages to.", ConfigurationField.Optional.NOT_OPTIONAL));
 			configurationRequest.addField(new TextField("port", "Syslog port", "514", "Syslog port on the remote host. Default is 514.", ConfigurationField.Optional.NOT_OPTIONAL));
 
-			final Map<String, String> formats = ImmutableMap.of("plain", "plain", "structured", "structured", "cef", "cef", "full", "full");
+			final Map<String, String> formats = ImmutableMap.<String, String>builder()
+				.put("plain", "plain")
+				.put("structured", "structured")
+				.put("cef", "cef")
+				.put("full", "full")
+				.put("custom:PlainCustomFacility", "custom:PlainCustomFacility")
+				.put("custom:PlainCustomFacilityMultiline", "custom:PlainCustomFacilityMultiline")
+				.build();
+
 			configurationRequest.addField(new DropdownField(
 					"format", "Message format", "plain", formats,
 					"Message format. For detailed explanation, see https://github.com/wizecore/graylog2-output-syslog",
 					ConfigurationField.Optional.NOT_OPTIONAL)
 			);
+            configurationRequest.addField(new TextField("field", "Field used to set the facility of messages", "type", "If the format selected is 'custom:PlainCustom*', the facility of each syslog message will take the value of the field you set here.", ConfigurationField.Optional.NOT_OPTIONAL));
 
 			configurationRequest.addField(new TextField("maxlen", "Maximum message length", "", "Maximum message (body) length. Longer messages will be truncated. If not specified defaults to 16384 bytes.", ConfigurationField.Optional.OPTIONAL));
 			
